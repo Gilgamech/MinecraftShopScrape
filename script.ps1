@@ -1,3 +1,37 @@
+<#
+#Monitor output - out of stock, shops to visit (Who have I visited in the past month but not past week?), good deals, chat name to visit name mapping, buying and selling requests, arbitrage opporunities, last time I visited this store, 
+#Report on - overall market trends, 
+#Static data - my own shops, /warp grass, website store, 
+
+	#Paginate, auto-ads? 
+	#Entertainment edition with shop features - casinos, parkour, music, (public) portals, banks, hotels,enchanting (lvl)? Ender chest? Much Lag? Free mob spawners? Roller coaster? People mover? Bulk orders? Quote Wall? Connects to other players?
+	#$mcs | %{$_.Name+":";$_.shopkeeper;"`r"}
+	#Manual blacklist (written book etc) and separations
+	#Builder list
+	
+9 areas
+- Center Shop
+- Tree island with cobble gen
+- Sunken Ship
+- Food Island
+- Mob Farm
+- Mushroom farm with mycelium
+- Donation wall
+- Parkour? 
+- Nether
+- Residential and Commercial
+- Hotel/apartments
+- Bank?
+- Casino? 
+- Other machines?
+
+#>
+
+filter Replace-Kirin {
+$_ = $_ -replace "\+  Welcome to Kirin","Riink"
+$_
+}
+
 Function ConvertFrom-Gzip {
 <#
 .SYNOPSIS
@@ -139,10 +173,6 @@ Function Parse-MCChat {
 	$list | select Date,type,source,user,message,Shopkeeper
 }
 
-#Monitor output - out of stock, shops to visit (Who have I visited in the past month but not past week?), good deals, chat name to visit name mapping, buying and selling requests, arbitrage opporunities, last time I visited this store, 
-#Report on - overall market trends, 
-#Static data - my own shops, /warp grass, website store, 
-
 Function Get-MCShopNames {
 	param(
 		[int]$LogGoesBackDays = 7,
@@ -150,36 +180,84 @@ Function Get-MCShopNames {
 	)
 	$ParseMinecraftChat | sort message | select message,shopkeeper -u | group message | select name,@{n="shopkeeper";e={$_.group.shopkeeper -replace "{",'' -replace "'s island\.",""}}
 }
-	#Paginate, auto-ads? 
-	#Entertainment edition with shop features - casinos, parkour, music, (public) portals, banks, hotels,enchanting (lvl)? Ender chest? Much Lag? Free mob spawners? Roller coaster? People mover? Bulk orders? Quote Wall? Connects to other players?
-	#$mcs | %{$_.Name+":";$_.shopkeeper;"`r"}
-	#Manual blacklist (written book etc) and separations
-	#Builder list
 	
-<#
-9 areas
-- Center Shop
-- Tree island with cobble gen
-- Sunken Ship
-- Food Island
-- Mob Farm
-- Mushroom farm with mycelium
-- Donation wall
-- Parkour? 
-- Nether
-- Residential and Commercial
-- Hotel/apartments
-- Bank?
-- Casino? 
-- Other machines?
+Function Get-MCBookOutput {
+	param(
+		$items = ((($mci | group item | sort count -d).name |select -Unique)[0..49])
+	)
+$items | sort | %{((((Get-MCWhoSells $_) -replace "These shops are selling ","" )[0..255] -join "" -replace "\r","" -split ", " |select-string "\)"| select -u) -join ", ")}
+}
 
-#>
+Function Get-MCArbitrage {
+	$items = $mci | %{$_.item} | sort -Unique
+	$items = $items[3..$items.count]
+	$items | %{
+	#foreach ($item in $items){
+		$item = $_;
+		$buy = ""
+		$sell = ""
+		try{
+			$buy = ($mci | where {$_.item -eq $item} | where {$_.buysell -match "buy"} | sort rate)[-1];
+			$sell=$mci | where {$_.item -eq $item} | where {$_.buysell -match "sell"}|where {$_.rate -lt $buy.rate} | sort shopkeeper -unique
+		}catch{};
+		if($buy -and $sell){$buy;$sell}
+	} 
+}
+
+Function Get-MCAvgPrice {
+	param(
+		$Item = "Diamond",
+		[ValidateSet("buying","selling","trading")][string]$BuySell = "selling"
+	)
+	$m2 = $mci | where {$_.item -eq $Item} | where {$_.buysell -match $buysell} | sort shopkeeper -Unique | sort rate 
+
+	$r2 = $m2 |%{$_.rate}
+	$avg = ($r2 |measure-object -Average).average
+		[math]::Round($avg,5)
+}
+
+Function Get-MCAvgPriceList {
+	param(
+		$Shopkeeper = "Haberson",
+		[ValidateSet("buying","selling","trading")][string]$BuySell = "selling"
+	)
+	
+	$items = ($mci | where {$_.buysell -match $buysell}| where {$_.Shopkeeper -match $Shopkeeper}) 
+	$out = @()
+	$items |%{
+		$outvar = $_ | select Item, Rate, Average, Variance
+		$outvar.Average = Get-MCAvgPrice $_.item
+		$outvar.Variance = [math]::Round($outvar.Average - $outvar.Rate,5)
+		
+		$out += $outvar
+	}
+	$out 	
+}
+
+Function Get-MCEmptyShop {
+	param(
+		$player,
+		$pmc = (Parse-MCChat -LogGoesBackDays 1),
+		$mcb = (Get-MCItemPrices -NoTransFilter -LogGoesBackDays 1 -ParseMinecraftChat $pmc),
+		$mcbPlayer = ($mcb | where {$_.shopkeeper -match $player}),
+		$out = ("" | select TotalShops,NonEmptyShops,EmptyShopPct)
+	)
+	
+try{
+	$out.TotalShops = $mcbPlayer.count
+	$out.NonEmptyShops = ($mcbPlayer|where {$_.transactions}).count
+	$out.EmptyShopPct = 1-($out.NonEmptyShops/$out.TotalShops)
+	$out
+}catch{}
+
+}
 
 Function Get-MCItemPrices {
 	[CmdletBinding()]
 	param(
 		[int]$LogGoesBackDays = 7,
-		$ParseMinecraftChat = (Parse-MCChat -LogGoesBackDays $LogGoesBackDays)
+		$ParseMinecraftChat = (Parse-MCChat -LogGoesBackDays $LogGoesBackDays),
+		[switch]$NoTransFilter
 	)
 	write-host "Combining $($ParseMinecraftChat.count) log records"
 	$ParseMinecraftChat = $ParseMinecraftChat | select user,message,Qty,BuySell,Item,Grass,Shopkeeper,Transactions,Rate,Date,Time,TradeItem | where {$_.user -match "this shop"}
@@ -225,106 +303,205 @@ Function Get-MCItemPrices {
 		$_.Grass = $Grass
 		$_.Shopkeeper = ($_.Shopkeeper -split "'")[0]
 		$_.Transactions = $Transactions
-		try{$_.Rate = if($Qty -and $Grass){[math]::Round($Grass/$Qty,3)}}catch{	}
+		try{$_.Rate = if($Qty -and $Grass){[math]::Round($Grass/$Qty,6)}}catch{	}
 		$_.TradeItem = $TradeItem
 		}
 	}
 
-	$ParseMinecraftChat | where {$_.Transactions} | select Date, Shopkeeper, BuySell, Item, Qty, Grass, Transactions, Rate, TradeItem | sort item
+	if($NoTransFilter){
+	$ParseMinecraftChat | where {$_.Item} | select Date, Shopkeeper, BuySell, Item, Qty, Grass, Transactions, Rate, TradeItem | sort item
+	}else{
+	$ParseMinecraftChat | where {[int]$_.Transactions -gt 0} | where {[int]$_.Transactions -lt 2147483647} | where {[int]$_.Qty -le 2240} | select Date, Shopkeeper, BuySell, Item, Qty, Grass, Transactions, Rate, TradeItem | sort item
+	}
 } 
 
-Function Get-MCAvgPrice {
+Function Get-MCItemSplit {
 	param(
-		$Item = "Diamond",
-		[int]$LogGoesBackDays = 7,
-		$mci = (Get-MCItemPrices 1)
+		$shopkeeper = "Haberson",
+		$item="acacia sapling"
 	)
-	$m2 = $mci | where {$_.item -match $Item} | sort shopkeeper -Unique | sort rate | where {$_.transactions -gt 0}
-	$m2.rate | Measure-Object -Average
+	$b = $mci | where {$_.buysell -match "b"} 
+	$s = $mci | where {$_.buysell -match "s"} 
+	[array]$c =""
+	foreach ($a in $b){
+		$r = $s | where {$_.item -match $a.item} |where {$_.shopkeeper -match $a.shopkeeper}
+		if ($r) {
+		$out = $a | select Shopkeeper, Item, BuyGrass, BuyQty, BuyRate, SellGrass, SellQty, SellRate, Spread
+		$out.BuyQty = $a.Qty
+		$out.BuyGrass = $a.Grass
+		$out.BuyRate = $a.Rate
+		$out.SellQty = $r.Qty
+		$out.SellGrass = $r.Grass
+		$out.SellRate = $r.Rate
+		$out.Spread = $a.rate/$r.rate
+		$c+=$out 
+		}
+		
+	}
+	$c
+}
+
+Function Get-MCPlayerState {
+	param(
+		#$pmc = (Parse-MCChat -LogGoesBackDays 1),
+		#$mcb = (Get-MCItemPrices -NoTransFilter -LogGoesBackDays 1 -ParseMinecraftChat $pmc)
+	)
+	write-host "Parsing $($pmc.count) lines"
+	$playerdata = ($pmc | where {$_.message -match "has been online"}).message
+	$playerdata += ($pmc | where {$_.message -match "has been offline"}).message
+	$playerdata += ($pmc | where {$_.user -match "has been online"}).user
+	$playerdata += ($pmc | where {$_.user -match "has been offline"}).user
+	$pd = $playerdata -replace "Player ","" -replace " has been ","," -replace " since ","," -replace "\.",""|ConvertFrom-Csv -Header "Player","Status","LastChange"|sort player -unique
+	write-host "Parsing player dates."
+	
+	$pd|%{
+	#write-host "Parsing player $($_.Player) date"
+		$NewDate = ""|select Month, Day, Hour, Minute, Second
+		if($_.lastchange -match "month"){
+			$NewDate.Month = ($_.lastchange -replace "s","" -split" month")
+			$NewDate.Day = ($NewDate.Month -split" day")
+			$NewDate.Hour = ($NewDate.Day -split" hour")
+			$NewDate.Minute = 0
+			$NewDate.Second = 0
+		}elseif($_.lastchange -match "day"){
+			$NewDate.Month = 0
+			$NewDate.Day = ($_.lastchange -replace "s" -split" day")
+			$NewDate.Hour = ($NewDate.Day -split" hour")
+			$NewDate.Minute = ($NewDate.Hour -split" minute")
+			$NewDate.Second = 0
+		}elseif($_.lastchange -match "hour"){
+			$NewDate.Month = 0
+			$NewDate.Day = 0
+			$NewDate.Hour = ($_.lastchange -replace "s" -split" hour")
+			$NewDate.Minute = ($NewDate.Hour -split" minute")
+			$NewDate.Second = ($NewDate.Second -split" econd")
+		}elseif($_.lastchange -match "minute"){
+			$NewDate.Month = 0
+			$NewDate.Day = 0
+			$NewDate.Hour = 0
+			$NewDate.Minute = ($_.lastchange -replace "s","" -split" minute")
+			$NewDate.Second = ($NewDate.Second -split" econd")
+		}elseif($_.lastchange -match "econd"){
+			$NewDate.Month = 0
+			$NewDate.Day = 0
+			$NewDate.Hour = 0
+			$NewDate.Minute = 0
+			$NewDate.Second = ($_.lastchange -replace "s","" -split" econd")
+		}
+		
+		$_.lastchange = (get-date).AddMonths(-1*$NewDate.Month[0]).AddDays(-1*$NewDate.Day[0]).AddHours(-1*$NewDate.Hour[0]).AddMinutes(-1*$NewDate.Minute[0]).AddSeconds(-1*$NewDate.Second[0])
+		
+	}
+	write-host "Combining $($pd.count) records."
+	
+	$pd | %{ 
+		$_ = $_ | select Player, Status, LastChange, EmptyShopPct, EmptyShops, TotalShops, ShopRating, StoreTime, ShopTime
+		$mces = (Get-MCEmptyShop $_.Player -pmc $pmc -mcb $mcb);
+		
+		$_.EmptyShopPct =[math]::Round($mces.EmptyShopPct,2)
+		$_.EmptyShops = $mces.TotalShops-$mces.NonEmptyShops
+		$_.TotalShops = $mces.TotalShops
+		$_.ShopRating = [Math]::Round((Get-MCShopRating $_.Player),5)*100
+		$_.StoreTime = Get-MCShopTime $_.Player
+		try{$_.ShopTime = [Math]::Round($_.StoreTime/$mces.NonEmptyShops,2)}catch{}
+		$_
+	}
+}
+
+Function Get-MCShopkeepers {
+	param(
+		$visit="visit",
+		$mcp = (($mcps | where {$_.lastchange -gt (get-date).AddDays(-1)} | where {$_.emptyshoppct -lt 0.5}| where {$_.totalshops}|sort totalshops).Player + ($mcps | where {$_.lastchange -gt (get-date).AddDays(-1)} | where {$_.totalshops -eq $null} | sort Player).Player),
+		$out = ($mcp |where {$_.length -gt 1}|select -Unique)
+	)
+	$out | %{"/$visit " + $_ }
+}
+
+Function Get-MCShopRating {
+	param(
+		$Player="Haberson",
+		$l = (Get-MCAvgPriceList $Player)
+	)
+	$mces = Get-MCEmptyShop $Player -pmc $pmc -mcb $mcb
+	$m = ($l.variance |where {$_ -gt -10} |where {$_ -lt 10}|Measure-Object -Average).average
+	$n = $mces.NonEmptyShops
+try{
+	$o = $n*((1-$m))/$mces.TotalShops
+}catch{}
+	$o
+}
+
+Function Get-MCSeen {
+	$output = Get-MCShopkeepers -visit "seen" -mcps $mcps -mcp (($mcps | where {$_.lastchange -gt (get-date).AddDays(-15)} | where {$_.EmptyShopPct -lt .5}).Player | sort -unique)
+	$output += Get-MCShopkeepers -visit "seen" -mcps $mcps -mcp (($mcps | where {$_.lastchange -gt (get-date).AddDays(-2)} | where {$_.totalshops -eq $null}).Player | sort -Unique)
+	#Get-MCShopkeepers -visit "seen" -mcps $mcps -mcp ($mcps.Player)
+	$output
 }
 
 Function Get-MCWhoSells {
 	param(
-		[ValidateSet("buying","selling","trading")][string]$BuySell = "selling",
 		$Item = "Diamond",
-		[int]$LogGoesBackDays = 2,
-		$mci = (Get-MCItemPrices $LogGoesBackDays),
-		[switch]$clip
+		[ValidateSet("buying","selling","trading")][string]$BuySell = "selling",
+		[switch]$clip,
+		[switch]$match,
+		[switch]$unique
 	)
-	$Shopkeepers = (($mci | where {$_.item -match $Item} | where {$_.BuySell -match $BuySell} | sort date | where {$_.transactions -gt 0} | select shopkeeper -Unique).shopkeeper) #-join ", ")
-	if ($clip){
-		"These shops are $BuySell $Item"+": " + $Shopkeepers | clip
+	$mci2 = ($mci | where {$_.date -gt (get-date).AddDays(-1)} | where {$_.transactions -gt 0})
+
+	if ($match){
+		$mci2 = $mci2 | where {$_.item -match $Item} 
 	} else {
-	$Shopkeepers 
+		$mci2 = $mci2 | where {$_.item -eq $Item} 
+	}
+	if ($BuySell -eq "buying"){
+		$mci2 = $mci2 | where {$_.BuySell -match $BuySell} | sort rate -d
+	} else {
+		$mci2 = $mci2 | where {$_.BuySell -match $BuySell} | sort rate
+	}
+	$Shopkeepers = ($mci2 | select shopkeeper -Unique).shopkeeper
+	
+	$s2 = $Shopkeepers |%{$sh=$_;$mci2 | where {$_.shopkeeper -eq $sh}|sort rate } |select shopkeeper,qty,grass,transactions
+	if ($unique){
+		$s2 = $s2 | sort shopkeeper -Unique | sort rate
+	} else {
+	}
+	$out = ($s2 |%{$_.shopkeeper+" ("+([int]$_.transactions*[int]$_.qty)+"@"+$_.qty+":"+$_.grass+")"}) -join ", "
+	$out = ($out -split ", "|select -Unique) -join ", "
+
+	$out = "These shops are $BuySell $Item"+": " + $out
+	if ($clip){
+		$out -join "" | Replace-Kirin | clip
+	} else {
+		$out | Replace-Kirin 
 	}
 	
 }
 
-Function Get-MCArbitrage {
+Function get-mcw2{
 	param(
-		[int]$LogGoesBackDays = 2,
-		$mci = (Get-MCItemPrices $LogGoesBackDays),
-		$item = "iron ingot"
+		$item,
+		$sort="date"
 	)
-	#ipmo -Force .\script.ps1;$mci = Get-MCItemPrices -ParseMinecraftChat $parseminecraftchat;$sell = $mci | where {$_.buysell -match "sel"};$buy = $mci | where {$_.buysell -match "buy"};$buy[0]|ft;$sell | where {$_.item -match $buy[0].item} |ft
-
-#$buy |%{$b=$_;$b;$sell | where {$_.item -match $b.item}|where {$_.rate -lt $b.rate}} | ft
-	$buyrate = ($mci | where {$_.buysell -match "buy"}| where {$_.item -match $item})[0].rate;
-	write-host $buyrate;
-	$mci |where {$_.item -match $item} | where {$_.rate -gt $buyrate}| sort rate 
+	$mci | where {$_.date -gt (get-date).AddDays(-1)} | where {$_.item -match $item} | sort $sort
 }
 
-Function Get-MCBookOutput {
-	param(
-		[ValidateSet("buying","selling")][string]$BuySell = "selling",
-		$Item = "Diamond",
-		[int]$LogGoesBackDays = 2,
-		#$ParseMinecraftChat = (Parse-MCChat -LogGoesBackDays $LogGoesBackDays),
-		$mci = (Get-MCItemPrices $LogGoesBackDays),
-		[switch]$clip
-	)
-	$BOutput = $mci | group item
-	$ic = 0
-	$x = @("Buying","Selling")
-	$BOutput | where {$_.name -ne "???"} | %{
-		if (($_.Group.buysell | Select-String $x[0]).count -gt 0) {
-			$x[0] + " " + $_.name + ":"; 
-			$ic++
-			if ($ic%14 -eq 0) { }	 
-			$_.group | where {$_.buysell -match $x[0]}| sort shopkeeper -unique | %{
-				""+ $_.shopkeeper + "|"+$_.Qty+":"+$_.Grass+"|"+((get-date) - (get-date $_.date)).days
-				$ic++
-				if ($ic%14 -eq 0) { }	 
-			};
-			"`r";
-			$ic++
-			if ($ic%14 -eq 0) { }	 
-		}
-		if (($_.Group.buysell | Select-String $x[1]).count -gt 0) {
-			$x[1] + " " + $_.name + ":"; 
-			$ic++
-			if ($ic%14 -eq 0) { }	 
-			$blanklines = ($_.group.count + (14-($ic%14)))
-			if ($blanklines -lt $_.group.count) { 
-				$blanklines | %{"`r";	$ic++}
-				
-			} else {
-			$_.group |where {$_.buysell -match $x[1]}| sort shopkeeper -unique | %{
-				""+ $_.shopkeeper + "|"+$_.Qty+":"+$_.Grass+"|"+((get-date) - (get-date $_.date)).days
-				$ic++
-				if ($ic%14 -eq 0) { }	 
-			};
-			"`r"
-			$ic++
-			if ($ic%14 -eq 0) { }	 
-			} 
+function get-mcw3($item){$mci | where {$_.date -gt (get-date).AddDays(-1)} | where {$_.item -match $item} | sort rate | ft}
+function get-mcw4($item){$mcb | where {$_.date -gt (get-date).AddDays(-1)} | where {$_.item -match $item} | sort rate | ft}
 
-		}	
- 	}
-"Pages: "+($ic/14)
+function Get-MCShopTime{
+	param(
+		$Player="Haberson"
+	)
+try{
+$diffdate = ($mci|where {$_.shopkeeper -match $Player}|where {$_.date -gt (get-date).AddDays(-1)}).date |sort
+$first = $diffdate[0]
+$last = $diffdate[-1]
+[math]::round(($last - $first).TotalSeconds,2)
+}catch{}
+
 }
 
-
+function Get-MCPlayerReport{$mcps |sort player -unique|where {$_.LastChange  -gt (get-date).AddDays(-1)}|where {$_.totalshops}|sort ShopRating -d|ft}
 
 <#
 
@@ -379,41 +556,150 @@ Date,Shopkeeper,BuySell,Item,Qty,Grass,Transactions,Rate,TradeItem
 
 #>
 
+<#
+New players - want to stretch your grass? [&cClick Here&f] to visit my &6G()ld Sh()p&f. Get 800 gold nuggets for your grass block, or bring your own. Many items for just 10 nuggets and weapons for 100 nuggets!
+New players ==> [&cClick Here&f] to visit my &6G()ld Sh()p&f. Don't want 128 carrots for 1 grass? Get 1 carrot for 10 gold nuggets.
+I sell 64 wheat seeds for 1 grass, or 1 wheat, melon, or pumpkin seed for 10 gold nuggets. Get 800 gold nuggets for your grass block at my &6G()ld Sh()p&f.
+New players ==> Do &a/vote&f to get grass blocks, then [&cClick Here&f] to check out my &6G()ld Sh()p&f. Most items just 10 gold nuggets and weapons 100 nuggets! Get 800 gold nuggets for 1 grass, or bring your own.
+Try to keep your grass from Kirby's donation bin. 
+Renting hoppers, starting at 1 grass/day. 
+If your baby refuses to do the hanky panky, you may be eligible for a grass settlement. [&cClick Here&f] for more details. 
+
+
+Nether was last reset on June 8th
+Bookshelf
+6 planks = 1.5 logs
+3 books = 3 leather + 3 paper = 3 sugar cane
+
+64 = 96 logs + 192 leather + 192 sugar cane
+64 = 1.5 grass + 3 grass + 3 grass = ~7 grass
+
+Book and Quill
+1 book = 1 leather + 3 paper = 3 sugar cane
+1 feather
+1 ink sac
+
+64 = 64 feather + 64 ink sac + 192 sugar cane
+64 = 1 grass + 1 grass + 3 grass = ~5 grass
+
+
+Dmac: Website
+
+
+Want grass more than voter keys? [&cClick Here&f] to sell your keys at my shop!
+
+Suicidal squid in my doorway. Free ink sacs to my next visitor! Get it before clag does!
+Slime spawner only works in slime chunks. To spawn slimes: Google "slime chunk finder" and use the seed Skyblock to find a slime chunk in your base. 
+ - Learn to make a shop at /visit audibility
+Are you ready for the &c4th&f of &9July&f? [&cClick Here&f] and stop by &cOne-Eyed&f Raven's &9Fireworks&f! Get a bite of the &c4th&f of &9July&f barbecue while you're here!
+
+#>
+
+<#
+
+Villagers *can* be spawned, and zombie villagers cured, but you can't buy from them (only /warp grass), and they don't farm. Iron golems can be constructed but don't spawn.
+Cobble gen and stone gen make ores every 100-400 stones or so.
+Enable mob spawning in /settings. Animals stack so use a name tag to separate one for breeding.
+If you don't use 1.12.2 then Herobrine breaks your doors and fences.
+Fun fact: You can do /kit sapling every 45 minutes.
+Grass is currency. To check your balance, look in your inventory or chest to see how many grass blocks you have. You might want the Economy server.
+7 ways to expand your surface: 1. generate cobble. 2. grow trees 3. Get netherrack 4. Shave sheep 5. Grow a LOT of pumpkins/melons. 6. Spawn skeletons & make bone blocks. 7. buy stone at a shop like mine.
+If you're building over the void, there's client side voidlag from recalculating the lighting over the whole void. Server lag is additional. 
+
+It's Minecraft - do what you'd do on any other server. Mine, craft, fight mobs, build your base, have fun!
+
+Use grass for dirt. Get grass from /vote, vote parties, word unscrambles, maybe sb /lottery, /ma j, & /warp crates too. Or your own shop, or sell to a buy shop like mine. 
+
+Tired of L()()King at the endless void? [&cClick Here&f] to visit my island paradise!  ==> Fish! Swim (don't drown)! Get free food! Make friends with the boat dogs! Slay cows and sheep at the mob grinder!
+
+Feeling stressed? Set /quiet and [&cClick Here&f] to visit my island paradise. Relax among the trees and enjoy the water.
+
+You can ride your bike with no handlebars at my island. [&cClick Here&f] to visit!
+
+Wifi is available at my island. [&cClick Here&f] to visit!
+
+You Require More Pylons. [&cClick Here&f] to obtain them!
+
+Selling red dirt 1:1 - Ender Pears 3:1 - harmburgers 64:1 - pimpkings 64:1 - peach cobble 2240:1 - water lemons 64:1 - boney meals 64:1 - oak woof 128:1 - Zombie Pigment for 55 grass. Now selling gluten-free wool. [&cClick Here&f] for more info!
+
+There are shops at /warp grass but many player shops (like mine) have better prices.
+
+New players ==> Do &a/vote&f to get grass blocks, then [&cClick Here&f] to get 800 gold nuggets for 1 grass at my &6G()ld Sh()p&f, or bring your own. Most items just 10 gold nuggets and weapons 100 nuggets!
+
+WhoSells v2 is out now! [&cClick Here&f] to exchange your v1.2 copy for a v2!
+
+Donate to end world hunger. Your donation of 1 grass block can feed 64 hungry minecrafters. [&cClick Here&f] to help now!
+
+Have you been accused of dirt trade? [&cClick Here&f] to get legal help in clearing your good name. (by Law Office of Gilgamech, esquire)
+
+Are you lagging? [&cClick Here&f] to visit my shop. Let retail therapy clear your worries until ClearLag clears the lag.
+
+"The best way to provide charity is to set up the world so that people don't need to beg in the first place." - adapted from Maimonides
+
+"Nothing is to be feared. It is only to be understood. Now is the time to understand more, so that we may fear less." - Marie Curie.
+
+If you're going to change the world, please change it for the better. We have enough people changing it for the worse.
+
+Has your wam become dedotated? [&cClick Here&f] to get assistance in reversing the process. 
+
+It's dangerous to go alone. Here, take this: (>^_^)>
+
+We have the most lag. The greatest lag. The best lag ever.
+Lagging in the morning, lagging in the evening, lagging at suppertime. When you're on a Skyblock, you could be lagging anytime!
+#>
+
+<#
+
+cd C:\Dropbox\
+ipmo -Force .\script.ps1
+$mcb = gc .\MCItemPrices_20190710.csv |ConvertFrom-Csv
+$mcps = gc .\MCPlayerState_20190710.csv |ConvertFrom-Csv
+$mci = $mcb | where {[int]$_.Transactions -gt 0} | where {[int]$_.Transactions -lt 2147483647} | where {[int]$_.Qty -le 2240}
+
+/visit dexgeta
+/visit panglong
+
+
+Get-MCSeen -mcps $mcps -mcp $mcp  |clip
+
+$pmc = Parse-MCChat -LogGoesBackDays 1
+$mcb = Get-MCItemPrices -ParseMinecraftChat $pmc -NoTransFilter
+$mci = $mcb | where {[int]$_.Transactions -gt 0} | where {[int]$_.Transactions -lt 2147483647} | where {[int]$_.Qty -le 2240}
+$mcps = Get-MCPlayerState -pmc $pmc -mcb $mcb
+Get-MCShopkeepers -mcps $mcps |clip
+
+$pmc = Parse-MCChat -LogGoesBackDays 1
+$mcb = Get-MCItemPrices -ParseMinecraftChat $pmc -NoTransFilter
+$mci = $mcb | where {[int]$_.Transactions -gt 0} | where {[int]$_.Transactions -lt 2147483647} | where {[int]$_.Qty -le 2240}
+$mcps = Get-MCPlayerState -pmc $pmc -mcb $mcb
+
+$mcb|ConvertTo-Csv > .\MCItemPrices_20190711.csv 
+$mcps|ConvertTo-Csv > .\MCPlayerState_20190711.csv 
+
+Get-MCBookOutput > .\book.txt
+
+
+
+
+#>
 
 <#
 
 
-Want grass more than voter keys? Click Here to sell your keys at my shop!
-Click Here to visit my island paradise!  - L()()K L()()K -> Fish! Swim (don't drown)! Bring your own Boat! Frolic among the trees! Enjoy the sunrise or sunset from the rooftop lounge! Visit the floating faerie rings!
-Tired of L()()King at the endless void? Come drown in my sea! If you're lucky, you'll find free ink sacs! Fight monsters on my faerie rings! See the under-construction spaceport!
-Suicidal squid in my doorway. Free ink sacs to my next visitor! Get it before clag does!
+WhoSells?
+Volume Test
+7/3/2019
 
+Listing shops on bases played in the past month, with more than half of shops in-stock.
 
-Now renting hoppers, starting at 1 grass/day.
-
-
-Fire doesn't spread. Mycelium spreads faster than grass. Snowmen don't make snow but chickens do drop eggs. 
-Villagers *can* be spawned, and zombie villagers cured, but you can't buy from them (only /warp grass), and they don't farm. Iron golems can be constructed but don't spawn.
-Cobble gen and stone gen make ores every 100-400 stones or so.
-Animals stack so use a nametag to separate one for breeding.
-Get grass from /vote, vote parties, word unscrambles, sb /lottery maybe /ma j and /warp crates too.
-7 ways to expand your surface: 1. generate cobble. 2. grow trees 3. Find a public nether portal and bring back netherrack 4. Shave sheep 5. Grow a LOT of pumpkins/melons. 6. Spawn skeletons and make bone blocks out of your enemies. 7. trade your grass for stone at a shop like mine.
-
-
-New players - want to stretch your grass? Click Here to visit my Gold Nugget Shop. Get 800 gold nuggets for your grass block. Many items for just 10 nuggets and weapons for 100 nuggets!
-New players L()()K L()()K -> Click Here to visit my Gold Shop. Don't want 128 carrots for 1 grass? Get 1 carrot for 10 gold nuggets.
-Click Here to check out my new Gold Shop. Most items just 10 gold nuggets! Get gold nuggets 800:1.
+PlayerName (Total@Qty:Grass)
 
 
 
-"Nothing is to be feared. It is only to be understood. Now is the time to understand moreee, so that we may fear less." - Marie Curie.
 
-We have the most lag. The greatest lag. The best lag ever.
-
-It's Minecraft - do what you'd do in any other server - grow stuff, mine, harvest, build your base, and have fun.
-NeonThunder Rumor is they archived it once to classic skyblock, but no they don't reset. except Nether which is every 1-3 months or whenever.
-
-Make a slot 3 wide and 2 deep - put water at the top of 1 side, lava at top of other, where they flow together is your cobble gen.
 
 #>
+
+
+
 
