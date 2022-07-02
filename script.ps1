@@ -1218,7 +1218,7 @@ function get-mcw4($item){$mcb | where {$_.date -gt (get-date).AddDays(-1)} | whe
 function Get-MCPlayerReport($sort="ShopRating"){$MCSRTA |sort player -unique|where {$_.LastChange -gt (get-date).adddays(-1)}|where {$_.totalshops}|sort $sort -d|select Player, EmptyShopPct, EmptyShops, Variance, TotalShops, ShopRating, StoreTime, ShopTime, ShopTimeVariance|ft}
 #endregion
 
-<#
+<# Ads
 New players - want to stretch your grass? &c[Click Here]&f to visit my &6G()ld Sh()p&f. Get 800 gold nuggets for your grass block, or bring your own. Many items for just 10 nuggets and weapons for 100 nuggets!
 New players ==> &c[Click Here]&f to visit my &6G()ld Sh()p&f. Don't want 128 carrots for 1 grass? Get 1 carrot for 10 gold nuggets.
 I sell 64 wheat seeds for 1 grass, or 1 wheat, melon, or pumpkin seed for 10 gold nuggets. Get 800 gold nuggets for your grass block at my &6G()ld Sh()p&f.
@@ -1257,7 +1257,7 @@ Are you ready for the &c4th&f of &9July&f? &c[Click Here]&f and stop by &cOne-Ey
 
 #>
 
-<#
+<# Help Messages
 
 Villagers *can* be spawned, and zombie villagers cured. They farm, but you can't buy from them (only /warp grass). Iron golems can be constructed but don't spawn.
 Enable mob spawning in /settings. Animals stack so use a name tag to separate one for breeding. 
@@ -1266,7 +1266,7 @@ Fun fact: You can do /kit sapling every 45 minutes.
 Grass is currency. To check your balance, look in your inventory or chest to see how many grass blocks you have. You might want the Economy server.
 If you're building over the void, there's client side voidlag from recalculating the lighting over the whole void. Server lag is additional. 
 
-7 ways to expand your surface: 1. generate cobble. 2. grow trees 3. Get netherrack 4. Shave sheep 5. Grow a LOT of pumpkins/melons. 6. Spawn skeletons & make bone blocks. 7. buy stone at a shop like mine.
+7 ways to expand your surface: 1. generate cobble. 2. grow trees 3. Get netherrack 4. Shave sheep 5. Grow a LOT of melons. 6. Spawn skeletons & make bone blocks. 7. buy stone at a shop like mine.
 
 It's Minecraft - do what you'd do on any other server. Mine, craft, fight mobs, build your base, have fun!
 
@@ -1317,7 +1317,7 @@ We have the most lag. The greatest lag. The best lag ever.
 Lagging in the morning, lagging in the evening, lagging at suppertime. When you're on a Skyblock, you could be lagging anytime!
 #>
 
-<#
+<# WhoSells run
 
 #Mute noisy shop ads
 /ignore LadyAnkie
@@ -1379,7 +1379,7 @@ Get-MCBookOutput > .\book.txt
 
 #>
 
-<#
+<# WhoSells header
 
 
 WhoSells v5
